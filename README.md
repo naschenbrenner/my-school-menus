@@ -4,7 +4,11 @@ Turn your school's [Health-e Pro / My School Menus](https://menus.healthepro.com
 iCalendar (`.ics`) feeds you can subscribe to in Apple Calendar, Google Calendar, or anything else that reads iCalendar.
 
 - One calendar per school and meal, e.g. **Example Elementary Lunch**, with one all-day event per school day:
-  `Example Elementary Lunch: Popcorn Chicken or Bean and Cheese Pupusa`. The full menu is in the event notes.
+  `Lunch: Popcorn Chicken or Bean and Cheese Pupusa`. The full menu is in the event notes.
+- Titles show only what changes from day to day, so they stay readable in a calendar's month and week views.
+  Dishes served on at least half the days in the feed (cereal, milk, juice) are left out of the title, and when the
+  menu marks entrées with a leading `•`, only those are shown. `--full-titles` restores the old
+  `Example Elementary Lunch: <every entrée>` titles.
 - Days without a menu (holidays, days off) get no event.
 - Event IDs are stable, so re-importing or refreshing updates events in place instead of creating duplicates.
 - The current menu is looked up from the school each run, so nothing needs editing when the school year changes.
@@ -51,6 +55,7 @@ my-school-menus --district 1000 --site 2000 --menu 3000 -o lunch.ics
 | `--output-dir DIR` | Directory for feeds, created if missing (default: current directory). Can't be combined with `-o`. |
 | `--quiet` | Don't print the files written. Errors are still printed. |
 | `--force-ipv4` | Connect over IPv4 only, for networks with broken IPv6. |
+| `--full-titles` | Title events `<School> <Meal>: <every entrée>` instead of only the dishes that change day to day. |
 
 The command exits with status 1 and prints a one-line `error:` message if the service is unreachable or returns
 something unexpected.

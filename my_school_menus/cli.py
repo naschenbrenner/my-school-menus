@@ -27,6 +27,7 @@ class Options:
     output_dir: Path
     quiet: bool
     force_ipv4: bool
+    full_titles: bool
 
 
 def _meal(value: str) -> MealType:
@@ -69,6 +70,11 @@ def _parser() -> argparse.ArgumentParser:
     output.add_argument("--output-dir", type=Path, default=Path("."), help="directory for feeds (default: .)")
     parser.add_argument("--quiet", action="store_true", help="do not report written files")
     parser.add_argument("--force-ipv4", action="store_true", help="connect over IPv4 only")
+    parser.add_argument(
+        "--full-titles",
+        action="store_true",
+        help="event titles name the school and every entrée instead of only the dishes that change day to day",
+    )
     return parser
 
 
@@ -89,6 +95,7 @@ def parse_args(argv: Sequence[str] | None) -> Options:
         output_dir=args.output_dir,
         quiet=args.quiet,
         force_ipv4=args.force_ipv4,
+        full_titles=args.full_titles,
     )
 
 
@@ -147,7 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 target = (
                     options.output if options.output is not None else options.output_dir / feed_filename(site, menu)
                 )
-                _write(target, build_calendar(site, menu, days).to_ical())
+                _write(target, build_calendar(site, menu, days, full_titles=options.full_titles).to_ical())
                 if not options.quiet:
                     print(f"wrote {target} ({len(days)} days)", file=sys.stderr)
     except MenusError as e:

@@ -45,9 +45,21 @@ def test_cli_end_to_end(
     breakfast = events(tmp_path / "1265-12589-breakfast.ics")
     assert len(lunch) == 3
     assert len(breakfast) == 3
-    assert lunch[0]["SUMMARY"] == "Chambers Primary Lunch: Crispy Chicken Nuggets"
-    assert breakfast[0]["SUMMARY"].startswith("Chambers Primary Breakfast: ")
+    assert lunch[0]["SUMMARY"] == "Lunch: Crispy Chicken Nuggets"
+    assert breakfast[0]["SUMMARY"].startswith("Breakfast: ")
     assert "wrote" in capsys.readouterr().err
+
+
+@responses.activate
+def test_cli_full_titles(
+    tmp_path: Path, site_payload: Any, site_menus_payload: Any, lunch_month: Any, breakfast_month: Any
+) -> None:
+    mock_school(site_payload, site_menus_payload, lunch_month, breakfast_month)
+    out = tmp_path / "lunch.ics"
+
+    assert main([*ARGS, "--meal", "lunch", "--full-titles", "-o", str(out)]) == 0
+
+    assert events(out)[0]["SUMMARY"] == "Chambers Primary Lunch: Crispy Chicken Nuggets"
 
 
 @responses.activate

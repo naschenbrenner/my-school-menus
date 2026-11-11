@@ -6,13 +6,25 @@ from typing import Any
 import icalendar
 import pytest
 
-from my_school_menus.calendar import build_calendar, calendar_name, description, event_uid, feed_filename, summary
+from my_school_menus.calendar import (
+    build_calendar,
+    calendar_name,
+    description,
+    event_uid,
+    feed_filename,
+    short_headline,
+    staples,
+    summary,
+)
 from my_school_menus.models import (
     DistrictId,
+    ItemKind,
     MealType,
     Menu,
     MenuDay,
     MenuId,
+    MenuItem,
+    Section,
     Site,
     SiteId,
     parse_month,
@@ -85,7 +97,10 @@ def test_build_calendar_deterministic_except_dtstamp(lunch_days: tuple[MenuDay, 
 def test_summary_and_description(lunch_days: tuple[MenuDay, ...]) -> None:
     pupusa = lunch_days[2]
 
-    assert summary(SITE, LUNCH, pupusa) == "Chambers Primary Lunch: Birria and Cheese Pupusa or Bean and Cheese Pupusa"
+    assert summary(SITE, LUNCH, pupusa) == "Lunch: Birria and Cheese Pupusa or Bean and Cheese Pupusa"
+    assert summary(SITE, LUNCH, pupusa, full=True) == (
+        "Chambers Primary Lunch: Birria and Cheese Pupusa or Bean and Cheese Pupusa"
+    )
     assert description(pupusa) == (
         "Lunch Entree:\nBirria and Cheese Pupusa\nOr\nBean and Cheese Pupusa\n\n"
         "Vegetables:\nRed Gold Salsa Cup\nBush's Taco Fiesta Black Beans\nGolden Corn Kernels\n\n"
@@ -98,6 +113,9 @@ def test_breakfast_headline(breakfast_month: Any) -> None:
     day = parse_month(breakfast_month["data"])[0]
 
     assert summary(SITE, BREAKFAST, day) == (
+        "Breakfast: Apple Cinnamon French Toast or Assorted General Mills Cereal Bowls or Benefit Bars"
+    )
+    assert summary(SITE, BREAKFAST, day, full=True) == (
         "Chambers Primary Breakfast: Apple Cinnamon French Toast or Assorted General Mills Cereal Bowls or Benefit Bars"
     )
 
@@ -124,6 +142,11 @@ def test_rename_keeps_identity(lunch_days: tuple[MenuDay, ...]) -> None:
     assert feed_filename(renamed, LUNCH) == feed_filename(SITE, LUNCH)
     assert [line for line in original if line.startswith("UID")] == [line for line in changed if line.startswith("UID")]
     differing = {a.split(":", 1)[0] for a, b in zip(original, changed, strict=True) if a != b}
+    assert differing == {"NAME", "X-WR-CALNAME"}
+
+    original = ics_lines(build_calendar(SITE, LUNCH, lunch_days, stamp=STAMP, full_titles=True))
+    changed = ics_lines(build_calendar(renamed, LUNCH, lunch_days, stamp=STAMP, full_titles=True))
+    differing = {a.split(":", 1)[0] for a, b in zip(original, changed, strict=True) if a != b}
     assert differing == {"NAME", "X-WR-CALNAME", "SUMMARY"}
 
 
@@ -132,8 +155,74 @@ def test_build_calendar_rejects_duplicate_days(lunch_days: tuple[MenuDay, ...]) 
         build_calendar(SITE, LUNCH, [lunch_days[0], lunch_days[1], lunch_days[0]], stamp=STAMP)
 
 
-def test_summary_without_recipes_is_calendar_name() -> None:
-    assert summary(SITE, LUNCH, MenuDay(day=date(2026, 9, 1), sections=())) == "Chambers Primary Lunch"
+def test_summary_without_recipes_is_meal_or_calendar_name() -> None:
+    empty = MenuDay(day=date(2026, 9, 1), sections=())
+
+    assert summary(SITE, LUNCH, empty) == "Lunch"
+    assert summary(SITE, LUNCH, empty, full=True) == "Chambers Primary Lunch"
+
+
+def recipe(name: str) -> MenuItem:
+    return MenuItem(kind=ItemKind.RECIPE, name=name)
+
+
+def text(name: str) -> MenuItem:
+    return MenuItem(kind=ItemKind.TEXT, name=name)
+
+
+CEREALS = (recipe("• Corn Flakes"), recipe("• Bran Flakes"))
+MILK = Section(title="Milk", items=(recipe("1% Milk"),))
+
+
+def bulleted_breakfast(day: int, *entrees: str) -> MenuDay:
+    """Shaped like districts that bullet entrées and separate choices with text items."""
+    items = [recipe(f"• {name}") for name in entrees]
+    items += [text("Or"), text("Choice Of"), *CEREALS, text("With"), recipe("Toast"), text("And"), recipe("Jelly")]
+    return MenuDay(day=date(2026, 11, day), sections=(Section(title="Breakfast Entree", items=tuple(items)), MILK))
+
+
+def test_staples_need_enough_days() -> None:
+    days = [bulleted_breakfast(d, f"Dish {d}") for d in range(2, 7)]
+
+    assert staples(days) == {"• Corn Flakes", "• Bran Flakes", "Toast", "Jelly", "1% Milk"}
+    assert staples(days[:4]) == frozenset()
+
+
+def test_short_titles_keep_only_daily_bulleted_entrees() -> None:
+    days = [bulleted_breakfast(d, f"Dish {d}") for d in range(2, 7)]
+    days.append(bulleted_breakfast(9, "Egg Casserole🐖", "Waffles"))
+    cal = build_calendar(SITE, BREAKFAST, days, stamp=STAMP)
+
+    titles = [str(e["SUMMARY"]) for e in cal.walk("VEVENT")]
+    assert titles[0] == "Breakfast: Dish 2"
+    assert titles[-1] == "Breakfast: Egg Casserole 🐖 or Waffles"
+
+
+def test_short_title_when_only_staples_are_bulleted() -> None:
+    cereal_only = bulleted_breakfast(10)
+    cereals = {item.name for item in CEREALS}
+
+    assert short_headline(cereal_only, cereals) == ("Toast", "Jelly")
+
+
+def test_short_title_keeps_inner_punctuation() -> None:
+    day = MenuDay(
+        day=date(2026, 11, 2),
+        sections=(
+            Section(
+                title="Signature Selection",
+                items=(
+                    recipe("• *STATE* Pork Sandwich🐖"),
+                    text("Or"),
+                    recipe("• Nachos🐄🐖"),
+                    text("With"),
+                    recipe("Corn"),
+                ),
+            ),
+        ),
+    )
+
+    assert summary(SITE, LUNCH, day) == "Lunch: *STATE* Pork Sandwich 🐖 or Nachos 🐄🐖"
 
 
 def test_custom_calendar_name_is_cleaned(lunch_days: tuple[MenuDay, ...]) -> None:
