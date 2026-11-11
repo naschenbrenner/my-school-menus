@@ -9,7 +9,7 @@ from itertools import pairwise
 import icalendar
 from icalendar.enums import TRANSP
 
-from .models import ItemKind, Menu, MenuDay, Site, clean_text
+from .models import ItemKind, Menu, MenuDay, Section, Site, clean_text
 
 PRODID = "-//andrewdefilippis//my-school-menus//EN"
 UID_DOMAIN = "my-school-menus"
@@ -21,6 +21,9 @@ STAPLE_MIN_DAYS = 5
 # Leading markers some districts put before entrées, e.g. "• Cheeseburger".
 BULLETS = "•·▪●◦"
 _EMOJI = "\U0001f300-\U0001faff\u2600-\u27bf"
+# Text items menus use to join dishes; matched case-insensitively. Other text items are shown as dishes.
+CONNECTORS = frozenset({"or", "with", "and", "choice of"})
+LIST_BULLET = "• "
 _TIGHT_EMOJI = re.compile(f"(?<=[^\\s{_EMOJI}])(?=[{_EMOJI}])")
 
 
@@ -89,13 +92,67 @@ def summary(
     return f"{label}: {' or '.join(dishes)}" if dishes else label
 
 
+def _choice_groups(section: Section) -> list[tuple[str, list[str]]]:
+    """Split a section into (connector, dishes) runs, e.g. ("or choice of", ["Cocoa Puffs", "Trix Cereal"]).
+
+    Connector text items ("Or", "With", "And", "Choice of") start a new run; any other text item is treated as a
+    dish, because some menus type dishes as text. Connectors before the first dish have nothing to connect.
+    """
+    groups: list[tuple[str, list[str]]] = []
+    pending: list[str] = []
+    for item in section.items:
+        if item.kind is ItemKind.TEXT and item.name.casefold() in CONNECTORS:
+            pending.append(item.name.casefold())
+            continue
+        name = _tidy(item.name)
+        if not name:
+            continue
+        if pending or not groups:
+            groups.append((" ".join(pending) if groups else "", [name]))
+            pending = []
+        else:
+            groups[-1][1].append(name)
+    return groups
+
+
+def _section_lines(section: Section) -> list[str]:
+    """A single dish per line ("With Muffin Square"); two or more options as a bulleted list introduced at the end
+    of the line above ("Tot N Egg Casserole, or choice of:")."""
+    lines: list[str] = []
+    for connector, dishes in _choice_groups(section):
+        after_list = not lines or lines[-1].startswith(LIST_BULLET)
+        if connector == "and" and lines and after_list:  # "and" after a list adds to that list
+            lines += [f"{LIST_BULLET}{dish}" for dish in dishes]
+            continue
+        if len(dishes) == 1:
+            if not connector:
+                lines.append(dishes[0])
+            elif connector == "and" and not after_list:
+                lines[-1] += f" and {dishes[0]}"
+            else:
+                lines.append(f"{connector.capitalize()} {dishes[0]}")
+            continue
+        if connector and not after_list:
+            lines[-1] += f", {connector}:"
+        elif connector:
+            lines.append(f"{connector.capitalize()}:")
+        lines += [f"{LIST_BULLET}{dish}" for dish in dishes]
+    return lines
+
+
 def description(day: MenuDay) -> str:
     blocks = []
     for section in day.sections:
-        lines = [f"{section.title}:"] if section.title else []
-        lines += [item.name for item in section.items]
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks)
+        lines = _section_lines(section)
+        if not lines:  # a heading with nothing under it
+            continue
+        if not section.title:
+            blocks.append("\n".join(lines))
+        elif len(lines) == 1 and not lines[0].startswith(LIST_BULLET):
+            blocks.append(f"{section.title}: {lines[0]}")
+        else:
+            blocks.append("\n".join([f"{section.title}:", *lines]))
+    return "\n\n".join(block for block in blocks if block)
 
 
 def build_calendar(

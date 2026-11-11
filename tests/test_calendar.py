@@ -102,10 +102,10 @@ def test_summary_and_description(lunch_days: tuple[MenuDay, ...]) -> None:
         "Chambers Primary Lunch: Birria and Cheese Pupusa or Bean and Cheese Pupusa"
     )
     assert description(pupusa) == (
-        "Lunch Entree:\nBirria and Cheese Pupusa\nOr\nBean and Cheese Pupusa\n\n"
-        "Vegetables:\nRed Gold Salsa Cup\nBush's Taco Fiesta Black Beans\nGolden Corn Kernels\n\n"
-        "Fruit:\nDiced Peaches Cup\nAssorted Seasonal Fresh Fruit\n\n"
-        "Milk:\n1% White Milk\nFat Free Chocolate Milk"
+        "Lunch Entree:\nBirria and Cheese Pupusa\nOr Bean and Cheese Pupusa\n\n"
+        "Vegetables:\n• Red Gold Salsa Cup\n• Bush's Taco Fiesta Black Beans\n• Golden Corn Kernels\n\n"
+        "Fruit:\n• Diced Peaches Cup\n• Assorted Seasonal Fresh Fruit\n\n"
+        "Milk:\n• 1% White Milk\n• Fat Free Chocolate Milk"
     )
 
 
@@ -245,3 +245,53 @@ def test_lone_surrogate_from_json_is_removed_and_serializes() -> None:
 
     assert day.headline == ("PizzaX",)
     assert b"PizzaX" in build_calendar(SITE, LUNCH, [day], stamp=STAMP).to_ical()
+
+
+def test_description_joins_choices_into_lines() -> None:
+    day = bulleted_breakfast(10, "Egg Casserole🐖")
+
+    assert description(day) == (
+        "Breakfast Entree:\n"
+        "Egg Casserole 🐖, or choice of:\n"
+        "• Corn Flakes\n"
+        "• Bran Flakes\n"
+        "With Toast and Jelly\n\n"
+        "Milk: 1% Milk"
+    )
+
+
+def test_description_skips_leading_connectors_and_keeps_text_dishes() -> None:
+    day = MenuDay(
+        day=date(2026, 11, 2),
+        sections=(
+            Section(
+                title=None,
+                items=(text("With"), text("Or"), recipe("• Cereal"), text("With"), text("Hot Roll"), text("Or")),
+            ),
+        ),
+    )
+
+    assert description(day) == "Cereal\nWith Hot Roll"
+
+
+def test_description_list_after_list_gets_its_own_connector_line() -> None:
+    day = MenuDay(
+        day=date(2026, 11, 2),
+        sections=(
+            Section(
+                title="Entree",
+                items=(recipe("A"), recipe("B"), text("Or"), recipe("C"), recipe("D"), text("And"), recipe("E")),
+            ),
+        ),
+    )
+
+    assert description(day) == "Entree:\n• A\n• B\nOr:\n• C\n• D\n• E"
+
+
+def test_description_drops_empty_sections() -> None:
+    day = MenuDay(
+        day=date(2026, 11, 2),
+        sections=(Section(title="Entree", items=(recipe("A"),)), Section(title="Misc.", items=(text("Or"),))),
+    )
+
+    assert description(day) == "Entree: A"
